@@ -14,6 +14,7 @@ from googleapiclient.discovery import build
 TOKEN_FILE = 'token.json'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
+
 class DocxToGsheetPandocGUI:
     def __init__(self, master):
         self.master = master
@@ -118,39 +119,75 @@ class DocxToGsheetPandocGUI:
     # ---------------------------------------------------------------------
     # Helper Methods
     # ---------------------------------------------------------------------
+
+    def parse_bracket_tokens(self, text):
+        """
+        Find any occurrences of '{[}...{]}' in the line, e.g.:
+        'সকল মূলদ ...? {[}য. বো. ২০১৫{]} {[}টপিক: মূলদ ও অমূলদ সংখ্যা{]}'
+        and extract them as board_institute or topic.
+        
+        Returns:
+            (base_text, board_institute, topic)
+        """
+        board_institute = ""
+        topic = ""
+
+        # Regex to find bracket blocks like: {[}some text{]}
+        bracket_pattern = re.compile(r'\{\[}(.*?)\{]}')
+        matches = bracket_pattern.findall(text)  # list of contents inside {[}...{]}
+
+        # Remove them from the original line so they're not in the question text
+        base_text = bracket_pattern.sub('', text).strip()
+
+        # Now parse each bracket's content to see if it starts with "টপিক:"
+        for m in matches:
+            stripped_m = m.strip()
+            if stripped_m.startswith("টপিক:"):
+                # example: "টপিক: মূলদ ও অমূলদ সংখ্যা"
+                topic = stripped_m.replace("টপিক:", "").strip()
+            else:
+                # otherwise, assume it's Board/Institution
+                board_institute = stripped_m
+
+        return base_text, board_institute, topic
+
     def parse_latex_for_mcqs(self, latex_file):
         """
         Reads the LaTeX line by line, searching for the structure:
 
-            ১২১. <Question text...>
-            ক. <Option text>
-            খ. <Option text>
-            গ. <Option text>
-            ঘ. <Option text>
-            উত্তর: <Answer text>
+            {Serial}. {Question text} (may contain bracket tokens in the same line)
+            {possibly bracket tokens on subsequent lines}
+            ক. {Option ক}
+            খ. {Option খ}
+            গ. {Option গ}
+            ঘ. {Option ঘ}
+            উত্তর: {Answer}
 
-        We also convert $...$ (LaTeX math) to naive Unicode on each line.
-        Returns a list of rows, each row = [
-            serial_number,
-            question_text,
-            "",                 # (placeholder for 'board_institute' - not used)
-            option_ক,
-            option_খ,
-            option_গ,
-            option_ঘ,
-            answer
-        ].
+        We'll also look for '{[}...{]}' to parse out Board/Inst or Topic text.
+
+        Returns a list of rows for the final spreadsheet columns:
+            [
+                serial_number,
+                "", "", "", "",
+                question_text,
+                topic,
+                board_institute,
+                options["ক"],
+                options["খ"],
+                options["গ"],
+                options["ঘ"],
+                answer
+            ]
         """
 
         with open(latex_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
-        # Regex patterns for your EXACT MCQ format
-        # 1) question line: "১২১. some text" => group(1)=serial, group(2)=question
+        # Regex for "Serial. question"
         re_question = re.compile(r'^([\u09E6-\u09EF0-9]+)[.,]\s+(.*)$', re.UNICODE)
-        # 2) option lines: "ক. something" => group(1)=ক, group(2)=text
+        # Regex for options: "ক. ..."
         re_option = re.compile(r'^([ক-ঘ])[.)]\s+(.*)$', re.UNICODE)
-        # 3) answer line: "উত্তর: something"
+        # Regex for answer: "উত্তর: ..."
         re_answer = re.compile(r'^উত্তর[:ঃ]\s+(.*)$', re.UNICODE)
 
         mcq_data = []
@@ -158,6 +195,8 @@ class DocxToGsheetPandocGUI:
         # Temporary state
         serial_number = ""
         question_text = ""
+        board_institute = ""
+        topic = ""
         options = {"ক": "", "খ": "", "গ": "", "ঘ": ""}
         answer = ""
 
@@ -166,8 +205,13 @@ class DocxToGsheetPandocGUI:
             if serial_number:
                 mcq_data.append([
                     serial_number.strip(),
+                    "",  # For Class Slide
+                    "",  # For Lecture sheet
+                    "",  # For Quiz (Daily)
+                    "",  # For Quiz (Weekly)
                     question_text.strip(),
-                    "",  # board_institute placeholder
+                    topic.strip(),
+                    board_institute.strip(),
                     options["ক"].strip(),
                     options["খ"].strip(),
                     options["গ"].strip(),
@@ -175,7 +219,6 @@ class DocxToGsheetPandocGUI:
                     answer.strip()
                 ])
 
-        # We'll read line-by-line, detect question or option or answer
         for line in lines:
             text = line.strip()
             if not text:
@@ -184,39 +227,60 @@ class DocxToGsheetPandocGUI:
             # Convert any LaTeX inline math to naive Unicode
             text = self.convert_inline_equations_to_unicode(text)
 
-            # Check if question line
+            # Check if line is "Serial. question"
             mq = re_question.match(text)
             if mq:
-                # If we have an ongoing MCQ, commit it
+                # If we already have an MCQ in progress, commit it before starting a new one
                 if serial_number:
                     commit_mcq()
 
+                # Start a new MCQ
                 serial_number = mq.group(1)
-                question_text = mq.group(2)
+                q_text = mq.group(2)
+
+                # Extract bracket tokens from the question line
+                base_text, new_board, new_topic = self.parse_bracket_tokens(q_text)
+                question_text = base_text
+
+                # If bracket tokens found, store them
+                board_institute = new_board
+                topic = new_topic
+
+                # Reset for new MCQ
                 options = {"ক": "", "খ": "", "গ": "", "ঘ": ""}
                 answer = ""
                 continue
 
-            # Check if option line
-            mo = re_option.match(text)
-            if mo:
-                letter = mo.group(1)
-                opt_text = mo.group(2)
-                options[letter] = opt_text
-                continue
-
-            # Check if answer line
-            ma = re_answer.match(text)
-            if ma:
-                answer_text = ma.group(1)
-                answer = answer_text
-                continue
-
-            # Otherwise, assume it's extra text continuing the question
+            # If we have an active MCQ, we might find bracket tokens or options/answer
             if serial_number:
-                question_text += " " + text
+                # Extract bracket tokens from this line
+                base_text, new_board, new_topic = self.parse_bracket_tokens(text)
 
-        # End of file => commit last MCQ
+                # If new board_institute or topic found, store them
+                if new_board:
+                    board_institute = new_board
+                if new_topic:
+                    topic = new_topic
+
+                # Check if this line is an option
+                mo = re_option.match(base_text)
+                if mo:
+                    letter = mo.group(1)
+                    opt_text = mo.group(2)
+                    options[letter] = opt_text
+                    continue
+
+                # Check if it's an answer line
+                ma = re_answer.match(base_text)
+                if ma:
+                    answer_text = ma.group(1)
+                    answer = answer_text
+                    continue
+
+                # Otherwise, it's additional question text
+                question_text += " " + base_text
+
+        # End of file => commit last MCQ if needed
         if serial_number:
             commit_mcq()
 
@@ -238,6 +302,7 @@ class DocxToGsheetPandocGUI:
         """
         Naive approach: \alpha->α, x^2->x², x_2->x₂, etc.
         """
+        # Common Greek letters
         greek_map = {
             r'\\alpha': 'α',
             r'\\beta': 'β',
@@ -312,7 +377,7 @@ class DocxToGsheetPandocGUI:
         return creds
 
     def write_to_google_sheets(self, mcq_data, creds, sheet_name):
-        """Create a new Google Sheet, write MCQs, open in browser."""
+        """Create a new Google Sheet, write MCQs (with extended columns), open in browser."""
         service = build('sheets', 'v4', credentials=creds)
 
         # Create
@@ -320,11 +385,29 @@ class DocxToGsheetPandocGUI:
         ss = service.spreadsheets().create(body=spreadsheet_body, fields="spreadsheetId").execute()
         ssid = ss.get("spreadsheetId")
 
-        # Prepare data
-        header = ["Serial", "Question", "Board/Inst", "Option ক", "Option খ", "Option গ", "Option ঘ", "Answer"]
+        # The final header includes:
+        # Serial | For Class Slide | For Lecture sheet | For Quiz (Daily) | For Quiz (Weekly) |
+        # Question | Topic | Board/Inst | Option ক | Option খ | Option গ | Option ঘ | Answer
+        header = [
+            "Serial",
+            "For Class Slide",
+            "For Lecture sheet",
+            "For Quiz (Daily)",
+            "For Quiz (Weekly)",
+            "Question",
+            "Topic",
+            "Board/Inst",
+            "Option ক",
+            "Option খ",
+            "Option গ",
+            "Option ঘ",
+            "Answer"
+        ]
+
+        # Combine header + data
         values = [header] + mcq_data
 
-        # Write
+        # Write to the newly created spreadsheet
         service.spreadsheets().values().update(
             spreadsheetId=ssid,
             range="Sheet1!A1",
@@ -332,7 +415,7 @@ class DocxToGsheetPandocGUI:
             body={"values": values}
         ).execute()
 
-        # Open
+        # Open the new spreadsheet in a browser
         url = f"https://docs.google.com/spreadsheets/d/{ssid}"
         webbrowser.open(url)
 
