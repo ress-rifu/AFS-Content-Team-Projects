@@ -184,7 +184,7 @@ class DocxToGsheetPandocGUI:
             lines = f.readlines()
 
         # Regex for "Serial. question"
-        re_question = re.compile(r'^([\u09E6-\u09EF0-9]+)[.,]\s+(.*)$', re.UNICODE)
+        re_question = re.compile(r'^([০-৯]+)[.,)।]\s*(.*)', re.UNICODE)
         # Regex for options: "ক. ..."
         re_option = re.compile(r'^([ক-ঘ])[.)]\s+(.*)$', re.UNICODE)
         # Regex for answer: "উত্তর: ..."
