@@ -14,7 +14,6 @@ from googleapiclient.discovery import build
 TOKEN_FILE = 'token.json'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-
 class DocxToGsheetPandocGUI:
     def __init__(self, master):
         self.master = master
@@ -44,8 +43,7 @@ class DocxToGsheetPandocGUI:
         tk.Entry(self.master, textvariable=self.sheet_name, width=50).grid(row=2, column=1, padx=5, pady=5)
 
         # Row 3: Convert button
-        tk.Button(self.master, text="Convert & Upload", command=self.on_convert_click, width=20)\
-            .grid(row=3, column=1, pady=15)
+        tk.Button(self.master, text="Convert & Upload", command=self.on_convert_click, width=20).grid(row=3, column=1, pady=15)
 
     def browse_docx(self):
         file_path = filedialog.askopenfilename(
@@ -157,13 +155,12 @@ class DocxToGsheetPandocGUI:
 
             {Serial}. {Question text} (may contain bracket tokens in the same line)
             {possibly bracket tokens on subsequent lines}
-            ক. {Option ক}
-            খ. {Option খ}
-            গ. {Option গ}
-            ঘ. {Option ঘ}
-            উত্তর: {Answer}
-
-        We'll also look for '{[}...{]}' to parse out Board/Inst or Topic text.
+            ক. {Option A}
+            খ. {Option B}
+            গ. {Option C}
+            ঘ. {Option D}
+            উত্তরঃ [Answer]
+            ব্যাখ্যাঃ [Explanation]
 
         Returns a list of rows for the final spreadsheet columns:
             [
@@ -176,7 +173,8 @@ class DocxToGsheetPandocGUI:
                 options["খ"],
                 options["গ"],
                 options["ঘ"],
-                answer
+                answer,
+                explanation
             ]
         """
 
@@ -187,8 +185,10 @@ class DocxToGsheetPandocGUI:
         re_question = re.compile(r'^([০-৯]+)[.,)।]\s*(.*)', re.UNICODE)
         # Regex for options: "ক. ..."
         re_option = re.compile(r'^([ক-ঘ])[.)]\s+(.*)$', re.UNICODE)
-        # Regex for answer: "উত্তর: ..."
+        # Regex for answer: "উত্তরঃ ..."
         re_answer = re.compile(r'^উত্তর[:ঃ]\s+(.*)$', re.UNICODE)
+        # Regex for explanation: "ব্যাখ্যাঃ ..."
+        re_explanation = re.compile(r'^ব্যাখ্যাঃ\s+(.*)$', re.UNICODE)
 
         mcq_data = []
 
@@ -199,6 +199,7 @@ class DocxToGsheetPandocGUI:
         topic = ""
         options = {"ক": "", "খ": "", "গ": "", "ঘ": ""}
         answer = ""
+        explanation = ""
 
         def commit_mcq():
             """Append the current MCQ to mcq_data, then reset."""
@@ -216,7 +217,8 @@ class DocxToGsheetPandocGUI:
                     options["খ"].strip(),
                     options["গ"].strip(),
                     options["ঘ"].strip(),
-                    answer.strip()
+                    answer.strip(),
+                    explanation.strip()  # Added the explanation here
                 ])
 
         for line in lines:
@@ -249,6 +251,7 @@ class DocxToGsheetPandocGUI:
                 # Reset for new MCQ
                 options = {"ক": "", "খ": "", "গ": "", "ঘ": ""}
                 answer = ""
+                explanation = ""
                 continue
 
             # If we have an active MCQ, we might find bracket tokens or options/answer
@@ -275,6 +278,13 @@ class DocxToGsheetPandocGUI:
                 if ma:
                     answer_text = ma.group(1)
                     answer = answer_text
+                    continue
+
+                # Check if it's an explanation line
+                me = re_explanation.match(base_text)
+                if me:
+                    explanation_text = me.group(1)
+                    explanation = explanation_text
                     continue
 
                 # Otherwise, it's additional question text
@@ -385,9 +395,7 @@ class DocxToGsheetPandocGUI:
         ss = service.spreadsheets().create(body=spreadsheet_body, fields="spreadsheetId").execute()
         ssid = ss.get("spreadsheetId")
 
-        # The final header includes:
-        # Serial | For Class Slide | For Lecture sheet | For Quiz (Daily) | For Quiz (Weekly) |
-        # Question | Topic | Board/Inst | Option ক | Option খ | Option গ | Option ঘ | Answer
+        # The final header includes the new "Explanation" column
         header = [
             "Serial",
             "For Class Slide",
@@ -401,11 +409,18 @@ class DocxToGsheetPandocGUI:
             "Option খ",
             "Option গ",
             "Option ঘ",
-            "Answer"
+            "Answer",
+            "Explanation"  # Added the new column here
+        ]
+
+        # Add empty Explanation to each MCQ data entry
+        mcq_data_with_explanation = [
+            row + [""]  # Add empty "Explanation" field for each row
+            for row in mcq_data
         ]
 
         # Combine header + data
-        values = [header] + mcq_data
+        values = [header] + mcq_data_with_explanation
 
         # Write to the newly created spreadsheet
         service.spreadsheets().values().update(
