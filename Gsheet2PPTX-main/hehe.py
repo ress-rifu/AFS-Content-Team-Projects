@@ -26,7 +26,6 @@ class PowerPointGeneratorGUI:
         self.root.title("PowerPoint Generator")
         self.create_widgets()
 
-
     def create_widgets(self):
         padding = {'padx': 10, 'pady': 5}
 
@@ -105,11 +104,10 @@ class PowerPointGeneratorGUI:
             font_dropdown.grid(row=0, column=1, padx=5, pady=5)
             self.font_settings[element]['name'] = font_name
 
-            # Font Size
+            # Font Size (default: 96)
             ttk.Label(section, text="Font Size:").grid(row=1, column=0, sticky='e', padx=5, pady=5)
-            default_size = 18 if element == 'Question' else 14
-            font_size = tk.IntVar(value=default_size)
-            font_size_spin = ttk.Spinbox(section, from_=8, to=72, textvariable=font_size, width=5)
+            font_size = tk.IntVar(value=96)  # Default font size
+            font_size_spin = ttk.Spinbox(section, from_=8, to=200, textvariable=font_size, width=5)
             font_size_spin.grid(row=1, column=1, sticky='w', padx=5, pady=5)
             self.font_settings[element]['size'] = font_size
 
@@ -125,15 +123,14 @@ class PowerPointGeneratorGUI:
             italic_check.grid(row=2, column=1, sticky='w', padx=5, pady=5)
             self.font_settings[element]['italic'] = italic_var
 
-            # Font Color
+            # Font Color (default: yellow)
             ttk.Label(section, text="Font Color:").grid(row=3, column=0, sticky='e', padx=5, pady=5)
-            color_var = tk.StringVar(value='#000000')  # Default black
+            color_var = tk.StringVar(value='#FFFF00')  # Default yellow color
             color_button = ttk.Button(section, text="Choose Color", command=lambda var=color_var, sec=section: self.choose_color(var, sec))
             color_button.grid(row=3, column=1, sticky='w', padx=5, pady=5)
             self.font_settings[element]['color'] = color_var
 
         # Tab 1 continued: Run Button and Status Display
-        # Place Run Button and Status Display outside the notebook for better visibility
         self.generate_button = ttk.Button(file_frame, text="Generate PowerPoint", command=self.start_generation_thread)
         self.generate_button.grid(row=5, column=0, columnspan=3, pady=20)
 
@@ -156,10 +153,9 @@ class PowerPointGeneratorGUI:
         ]
 
     def choose_color(self, color_var, section):
-        color_code = colorchooser.askcolor(title="Choose font color")
+        color_code = colorchooser.askcolor(title="Choose font color", initialcolor=color_var.get())
         if color_code:
             color_var.set(color_code[1])  # Hex color code
-            # Optionally, you can update a label or indicator to show the selected color
 
     def browse_credentials(self):
         file_path = filedialog.askopenfilename(title="Select credentials.json", filetypes=[("JSON Files", "*.json")])
@@ -178,7 +174,7 @@ class PowerPointGeneratorGUI:
 
     def browse_output(self):
         file_path = filedialog.asksaveasfilename(title="Save Output PPTX", defaultextension=".pptx",
-                                                 filetypes=[("PowerPoint Files", "*.pptx")])
+                                                filetypes=[("PowerPoint Files", "*.pptx")])
         if file_path:
             self.output_pptx.set(file_path)
 
@@ -189,28 +185,23 @@ class PowerPointGeneratorGUI:
         self.status_text.see(tk.END)
 
     def start_generation_thread(self):
-        # Start the generation in a separate thread to keep GUI responsive
         generation_thread = threading.Thread(target=self.run_generation)
         generation_thread.start()
 
     def run_generation(self):
-        # Disable target widgets to prevent multiple clicks
         self.set_widgets_state('disabled')
         self.log_status("Starting PowerPoint generation...")
 
         try:
-            # Retrieve inputs from GUI
             credentials_path = self.credentials_path.get()
             token_path = self.token_path.get()
             template_pptx = self.template_pptx.get()
             output_pptx = self.output_pptx.get()
             spreadsheet_id_input = self.spreadsheet_id.get()
 
-            # Validate required inputs
             if not all([credentials_path, template_pptx, spreadsheet_id_input]):
                 raise ValueError("Please provide all required inputs: Credentials JSON, Template PPTX, and Spreadsheet ID.")
 
-            # Collect font settings
             font_settings_collected = {}
             for element, settings in self.font_settings.items():
                 font_settings_collected[element] = {
@@ -221,7 +212,6 @@ class PowerPointGeneratorGUI:
                     'color': settings['color'].get()
                 }
 
-            # Call the main function with updated parameters
             main_gui_wrapper(
                 credentials_path=credentials_path,
                 token_path=token_path,
@@ -236,7 +226,6 @@ class PowerPointGeneratorGUI:
             messagebox.showerror("Error", str(e))
             self.log_status(f"Error: {e}")
         finally:
-            # Re-enable the widgets
             self.set_widgets_state('normal')
 
     def set_widgets_state(self, state):
@@ -244,13 +233,13 @@ class PowerPointGeneratorGUI:
             try:
                 widget.configure(state=state)
             except tk.TclError:
-                # Widget does not support 'state'; skip it
                 pass
 
     def close(self):
         self.root.quit()
 
 
+# Authentication and PowerPoint generation logic
 def authenticate_gui(credentials_path_param, token_path_param, log_func=None):
     creds = None
     # Token file stores the user's access and refresh tokens
@@ -282,7 +271,7 @@ def main_gui_wrapper(credentials_path, token_path, spreadsheet_id_input, templat
     service = build('sheets', 'v4', credentials=creds)
     log_func("Authenticated with Google Sheets API.")
 
-    range_name = 'Sheet1!A1:L'  # Adjusted to cover columns H, I, K, and L
+    range_name = 'Sheet1!A1:H'  # Specify sheet name if necessary
     log_func(f"Fetching data from Spreadsheet ID: {spreadsheet_id_input}")
 
     # Read data from Google Sheets
@@ -294,7 +283,7 @@ def main_gui_wrapper(credentials_path, token_path, spreadsheet_id_input, templat
         raise e
     values = result.get('values', [])
 
-    log_func(f"Raw data fetched: {values}")  # Log raw data for debugging
+    log_func(f"Raw data fetched: {len(values)} rows")  # Log raw data count for debugging
 
     if not values:
         log_func('No data found in the Google Sheet.')
@@ -305,6 +294,8 @@ def main_gui_wrapper(credentials_path, token_path, spreadsheet_id_input, templat
     # Extract headers and data
     headers = values[0]
     data_rows = values[1:]
+    
+    log_func(f"Headers found: {headers}")
 
     # Load the PowerPoint template
     if os.path.exists(template_pptx):
@@ -321,13 +312,37 @@ def main_gui_wrapper(credentials_path, token_path, spreadsheet_id_input, templat
     # Assuming the first slide in the template is the one with placeholders
     template_slide_index = 0  # Adjust if necessary
 
-    # Modify to target the correct columns for options (H, I, K, L)
-    option_columns = ['Option_ক', 'Option_খ', 'Option_গ', 'Option_ঘ']
-    log_func(f"Identified option columns: {option_columns}")
+    # Define the specific column headers we're looking for
+    required_headers = {
+        'Question': 'Question',
+        'Board/Institute': 'Board/Institute',
+        'Option ক': 'Option ক',
+        'Option খ': 'Option খ',
+        'Option গ': 'Option গ',
+        'Option ঘ': 'Option ঘ',
+        'Answer': 'Answer'
+    }
+    
+    # Map the required headers to actual headers in the spreadsheet
+    header_map = {}
+    for req_header, placeholder in required_headers.items():
+        if req_header in headers:
+            header_map[placeholder] = req_header
+            log_func(f"Found required header: {req_header}")
+        else:
+            log_func(f"Warning: Required header not found: {req_header}")
+    
+    # Map Bengali option keys to their full column names
+    option_map = {
+        'ক': 'Option ক',
+        'খ': 'Option খ',
+        'গ': 'Option গ',
+        'ঘ': 'Option ঘ'
+    }
 
     for row_num, row in enumerate(data_rows, start=1):
         row_data = dict(zip(headers, row))
-        question_preview = row_data.get('Question', '')[:30] + "..." if len(row_data.get('Question', '')) > 30 else row_data.get('Question', '')
+        question_preview = row_data.get(header_map.get('Question', ''), '')[:30] + "..." if len(row_data.get(header_map.get('Question', ''), '')) > 30 else row_data.get(header_map.get('Question', ''), '')
         log_func(f"Processing row {row_num}: {question_preview}")
 
         # Duplicate the template slide
@@ -338,11 +353,20 @@ def main_gui_wrapper(credentials_path, token_path, spreadsheet_id_input, templat
         for shape in slide.shapes:
             if shape.has_text_frame:
                 text = shape.text_frame.text
+                
+                # Process Question
                 if '[question]' in text:
-                    question_text = row_data.get('Question', '')
+                    question_column = header_map.get('Question', '')
+                    question_text = row_data.get(question_column, '')
                     question_text_no_latex = remove_latex(question_text)
-                    shape.text_frame.text = f"{row_data.get('Serial Number', '')}. {question_text_no_latex}"
-
+                    
+                    # Get serial number if available
+                    serial_number = row_data.get('Serial Number', '')
+                    if serial_number:
+                        shape.text_frame.text = f"{serial_number}. {question_text_no_latex}"
+                    else:
+                        shape.text_frame.text = question_text_no_latex
+                    
                     # Apply font settings for Question
                     apply_font_settings(shape, font_settings['Question'], log_func=log_func)
 
@@ -362,138 +386,62 @@ def main_gui_wrapper(credentials_path, token_path, spreadsheet_id_input, templat
                         pic = slide.shapes.add_picture(image_stream, left, top, width=pic_width, height=pic_height)
                         top += pic.height + Inches(0.1)
                         log_func(f"Added LaTeX image for question: {code}")
-                elif '[option_ক]' in text:
-                    option_text = row_data.get('Option_ক', '')
-                    option_text_no_latex = remove_latex(option_text)
-                    shape.text_frame.text = f"Option ক. {option_text_no_latex}"
+                
+                # Process Options
+                elif re.match(r'\[option_[^\]]+\]', text):
+                    option_key_match = re.match(r'\[option_(.+)\]', text)
+                    if option_key_match:
+                        option_key = option_key_match.group(1)
+                        option_column = option_map.get(option_key)
+                        
+                        if option_column and option_column in header_map:
+                            actual_option_column = header_map.get(option_column)
+                            option_text = row_data.get(actual_option_column, '')
+                            option_text_no_latex = remove_latex(option_text)
+                            shape.text_frame.text = f"{option_key}. {option_text_no_latex}"
+                            
+                            # Apply font settings for Option
+                            apply_font_settings(shape, font_settings['Option'], log_func=log_func)
 
-                    # Apply font settings for Option_ক
-                    apply_font_settings(shape, font_settings['Option'], log_func=log_func)
+                            # Handle equations in option
+                            option_latex_codes = extract_latex(option_text)
+                            left = shape.left
+                            top = shape.top + shape.height + Inches(0.1)
+                            for code in option_latex_codes:
+                                image = latex_to_image(code)
+                                image_stream = io.BytesIO()
+                                image.save(image_stream, format='PNG')
+                                image_stream.seek(0)
 
-                    # Handle equations in option
-                    option_latex_codes = extract_latex(option_text)
-                    left = shape.left
-                    top = shape.top + shape.height + Inches(0.1)
-                    for code in option_latex_codes:
-                        image = latex_to_image(code)
-                        image_stream = io.BytesIO()
-                        image.save(image_stream, format='PNG')
-                        image_stream.seek(0)
-
-                        # Add picture with desired size
-                        pic_width = Inches(3)  # Adjust as needed
-                        pic_height = Inches(0.8)  # Adjust as needed
-                        pic = slide.shapes.add_picture(image_stream, left, top, width=pic_width, height=pic_height)
-                        top += pic.height + Inches(0.1)
-                        log_func(f"Added LaTeX image for Option ক: {code}")
-                elif '[option_খ]' in text:
-                    option_text = row_data.get('Option_খ', '')
-                    option_text_no_latex = remove_latex(option_text)
-                    shape.text_frame.text = f"Option খ. {option_text_no_latex}"
-
-                    # Apply font settings for Option_খ
-                    apply_font_settings(shape, font_settings['Option'], log_func=log_func)
-
-                    # Handle equations in option
-                    option_latex_codes = extract_latex(option_text)
-                    left = shape.left
-                    top = shape.top + shape.height + Inches(0.1)
-                    for code in option_latex_codes:
-                        image = latex_to_image(code)
-                        image_stream = io.BytesIO()
-                        image.save(image_stream, format='PNG')
-                        image_stream.seek(0)
-
-                        # Add picture with desired size
-                        pic_width = Inches(3)  # Adjust as needed
-                        pic_height = Inches(0.8)  # Adjust as needed
-                        pic = slide.shapes.add_picture(image_stream, left, top, width=pic_width, height=pic_height)
-                        top += pic.height + Inches(0.1)
-                        log_func(f"Added LaTeX image for Option খ: {code}")
-                elif '[option_গ]' in text:
-                    option_text = row_data.get('Option_গ', '')
-                    option_text_no_latex = remove_latex(option_text)
-                    shape.text_frame.text = f"Option গ. {option_text_no_latex}"
-
-                    # Apply font settings for Option_গ
-                    apply_font_settings(shape, font_settings['Option'], log_func=log_func)
-
-                    # Handle equations in option
-                    option_latex_codes = extract_latex(option_text)
-                    left = shape.left
-                    top = shape.top + shape.height + Inches(0.1)
-                    for code in option_latex_codes:
-                        image = latex_to_image(code)
-                        image_stream = io.BytesIO()
-                        image.save(image_stream, format='PNG')
-                        image_stream.seek(0)
-
-                        # Add picture with desired size
-                        pic_width = Inches(3)  # Adjust as needed
-                        pic_height = Inches(0.8)  # Adjust as needed
-                        pic = slide.shapes.add_picture(image_stream, left, top, width=pic_width, height=pic_height)
-                        top += pic.height + Inches(0.1)
-                        log_func(f"Added LaTeX image for Option গ: {code}")
-                elif '[option_ঘ]' in text:
-                    option_text = row_data.get('Option_ঘ', '')
-                    option_text_no_latex = remove_latex(option_text)
-                    shape.text_frame.text = f"Option ঘ. {option_text_no_latex}"
-
-                    # Apply font settings for Option_ঘ
-                    apply_font_settings(shape, font_settings['Option'], log_func=log_func)
-
-                    # Handle equations in option
-                    option_latex_codes = extract_latex(option_text)
-                    left = shape.left
-                    top = shape.top + shape.height + Inches(0.1)
-                    for code in option_latex_codes:
-                        image = latex_to_image(code)
-                        image_stream = io.BytesIO()
-                        image.save(image_stream, format='PNG')
-                        image_stream.seek(0)
-
-                        # Add picture with desired size
-                        pic_width = Inches(3)  # Adjust as needed
-                        pic_height = Inches(0.8)  # Adjust as needed
-                        pic = slide.shapes.add_picture(image_stream, left, top, width=pic_width, height=pic_height)
-                        top += pic.height + Inches(0.1)
-                        log_func(f"Added LaTeX image for Option ঘ: {code}")
-                elif '[board_institute]' in text:
-                    board_institute = row_data.get('Board/Institute', '')
-                    shape.text_frame.text = f"{board_institute}"
-
+                                # Add picture with desired size
+                                pic_width = Inches(3)  # Adjust as needed
+                                pic_height = Inches(0.8)  # Adjust as needed
+                                pic = slide.shapes.add_picture(image_stream, left, top, width=pic_width, height=pic_height)
+                                top += pic.height + Inches(0.1)
+                                log_func(f"Added LaTeX image for Option {option_key}: {code}")
+                
+                # Process Board/Institute
+                elif '[board/institute]' in text:
+                    board_institute_column = header_map.get('Board/Institute', '')
+                    board_institute_text = row_data.get(board_institute_column, '')
+                    shape.text_frame.text = board_institute_text
                     # Apply font settings for Board/Institute
                     apply_font_settings(shape, font_settings['Board/Institute'], log_func=log_func)
 
-                    log_func("Added Board/Institute to slide.")
+                # Process Answer
                 elif '[answer]' in text:
-                    answer_text = row_data.get('Answer', '')
-                    shape.text_frame.text = f"Answer: {answer_text}"
-
+                    answer_column = header_map.get('Answer', '')
+                    answer_text = row_data.get(answer_column, '')
+                    shape.text_frame.text = answer_text
                     # Apply font settings for Answer
                     apply_font_settings(shape, font_settings['Answer'], log_func=log_func)
 
-                    # Handle equations in answer (if any)
-                    answer_latex_codes = extract_latex(answer_text)
-                    left = shape.left
-                    top = shape.top + shape.height + Inches(0.1)
-                    for code in answer_latex_codes:
-                        image = latex_to_image(code)
-                        image_stream = io.BytesIO()
-                        image.save(image_stream, format='PNG')
-                        image_stream.seek(0)
-
-                        # Add picture with desired size
-                        pic_width = Inches(2)  # Adjust as needed
-                        pic_height = Inches(0.5)  # Adjust as needed
-                        pic = slide.shapes.add_picture(image_stream, left, top, width=pic_width, height=pic_height)
-                        top += pic.height + Inches(0.1)
-                        log_func(f"Added LaTeX image for Answer: {code}")
-
-                    log_func("Added answer to slide.")
-
-        # Optionally remove the template slide if you don't want it in the final presentation
-        # prs.slides.remove(prs.slides[template_slide_index])
+        log_func("Completed processing for slide.")
+    
+    # Remove the template slide from the final presentation
+    rId = prs.slides._sldIdLst[template_slide_index].rId
+    prs.part.drop_rel(rId)
+    del prs.slides._sldIdLst[template_slide_index]
 
     # Save the presentation
     prs.save(output_pptx)
@@ -504,30 +452,40 @@ def apply_font_settings(shape, settings, log_func=None):
     """
     Apply font settings to all runs in all paragraphs of a shape's text frame.
     """
-    for paragraph in shape.text_frame.paragraphs:
-        for run in paragraph.runs:
-            original_font = run.font.name
-            try:
-                run.font.name = settings['name'].strip()
-            except Exception as e:
-                run.font.name = 'Kalpurush'  # Fallback font
-                if log_func:
-                    log_func(f"Failed to set font '{settings['name']}'. Falling back to Kalpurush. Error: {e}")
-            run.font.size = Pt(settings['size'])
-            run.font.bold = settings['bold']
-            run.font.italic = settings['italic']
-            # Convert hex color code to RGBColor
-            try:
-                rgb = hex_to_rgb(settings['color'])
-                run.font.color.rgb = RGBColor(rgb[0], rgb[1], rgb[2])
-            except Exception as e:
-                run.font.color.rgb = RGBColor(0, 0, 0)  # Default to black if conversion fails
-                if log_func:
-                    log_func(f"Error setting font color: {e}")
+    if not shape.has_text_frame:
+        return
+
+    # Clear existing text while preserving the text content
+    text_content = shape.text_frame.text
+    shape.text_frame.clear()
+
+    # Add the text back with the new formatting
+    p = shape.text_frame.paragraphs[0]
+    run = p.add_run()
+    run.text = text_content
+
+    # Apply font settings
+    try:
+        run.font.name = settings['name']
+        run.font.size = Pt(settings['size'])
+        run.font.bold = settings['bold']
+        run.font.italic = settings['italic']
+
+        # Convert hex color code to RGBColor
+        try:
+            rgb = hex_to_rgb(settings['color'])
+            run.font.color.rgb = RGBColor(rgb[0], rgb[1], rgb[2])
+        except Exception as e:
+            run.font.color.rgb = RGBColor(0, 0, 0)  # Default to black if conversion fails
             if log_func:
-                log_func(f"Applied font: '{run.font.name}' (was '{original_font}'), "
-                         f"Size: {settings['size']}, Bold: {settings['bold']}, "
-                         f"Italic: {settings['italic']}, Color: {settings['color']}")
+                log_func(f"Error setting font color: {e}")
+                
+        if log_func:
+            log_func(f"Applied font: '{run.font.name}', Size: {settings['size']}, "
+                     f"Bold: {settings['bold']}, Italic: {settings['italic']}, Color: {settings['color']}")
+    except Exception as e:
+        if log_func:
+            log_func(f"Error applying font settings: {e}")
 
 
 def hex_to_rgb(hex_color):
